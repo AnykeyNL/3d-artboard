@@ -1,0 +1,18 @@
+{
+  "name": "3d-artboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Parametric 3D wall art boards: generates printable OpenSCAD tiles and a bed-sized backplate.",
+  "scripts": {
+    "generate": "tsx scripts/generate.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

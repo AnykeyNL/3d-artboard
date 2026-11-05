@@ -1,0 +1,4 @@
+node_modules/
+out/
+*.stl
+*.3mf

@@ -1,0 +1,7 @@
+{
+  "width": 1000, "height": 700, "depth": 60, "outline": "rounded", "cornerRadius": 80,
+  "tiles": { "shape": "square", "size": 60, "topScale": 0.4 },
+  "pattern": { "type": "dunes", "scale": 1.5 },
+  "colors": { "count": 4, "palette": ["#f4f1ea", "#e2c9a0", "#c98f4a", "#8a5a2b"], "mode": "height" },
+  "mount": { "type": "glue" }
+}

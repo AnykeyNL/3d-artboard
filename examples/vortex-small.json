@@ -1,0 +1,6 @@
+{
+  "width": 300, "height": 300, "depth": 35, "outline": "circle",
+  "tiles": { "shape": "hex", "size": 30 },
+  "pattern": { "type": "vortex", "twist": 0.7, "lean": 0.8 },
+  "colors": { "count": 3, "palette": ["#e8463a", "#f4f1ea", "#1d1d1f"], "mode": "pattern" }
+}

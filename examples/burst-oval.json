@@ -1,0 +1,6 @@
+{
+  "width": 1400, "height": 700, "depth": 80, "outline": "oval",
+  "tiles": { "shape": "hex", "size": 45 },
+  "pattern": { "type": "burst", "twist": 0.2, "lean": 1 },
+  "colors": { "count": 3, "palette": ["#e8463a", "#f4f1ea", "#1d1d1f"], "mode": "radial", "repeats": 2, "jitter": 0.1 }
+}
