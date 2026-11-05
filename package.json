@@ -7,12 +7,20 @@
   "scripts": {
     "generate": "tsx scripts/generate.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/three": "^0.170.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "vite": "^5.4.11",
     "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
   }
 }

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D ArtBoard</title>
+    <meta name="description" content="Design 3D-printable wall art from tiles and download OpenSCAD files." />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 4h11l-5.5 6zM17 4h11l-5.5 6zM4 17h11l-5.5 6zM17 17h11l-5.5 6z' fill='%231f6f78'/></svg>" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="panel">
+        <header class="brand">
+          <div class="logo" aria-hidden="true">◆</div>
+          <div>
+            <h1>3D ArtBoard</h1>
+            <p>Printable wall art from tiles</p>
+          </div>
+        </header>
+        <div class="presets-wrap">
+          <div class="label"><span>Start from</span></div>
+          <div id="presets"></div>
+        </div>
+        <div id="groups"></div>
+        <footer class="panel-foot">
+          <button id="reset" class="ghost">Reset</button>
+          <label class="ghost file">Load design<input id="load-json" type="file" accept=".json,application/json" hidden /></label>
+          <button id="dl-json" class="ghost">Save design</button>
+        </footer>
+      </aside>
+      <main id="stage">
+        <div id="toolbar">
+          <div class="seg views">
+            <button data-view="iso" class="on">Iso</button>
+            <button data-view="front">Front</button>
+            <button data-view="side">Side</button>
+            <button data-view="room">Room</button>
+          </div>
+          <label class="light" title="Light direction">☀<input id="light" type="range" min="0" max="1" step="0.01" value="0.35" /></label>
+          <label class="check"><input id="seams" type="checkbox" checked /> Seams</label>
+          <span class="spacer"></span>
+          <button id="share" class="ghost">Share</button>
+          <button id="dl-png" class="ghost">Image</button>
+          <button id="dl-scad" class="primary">Download OpenSCAD</button>
+        </div>
+        <div id="viewport"></div>
+        <div id="stats" aria-live="polite"></div>
+        <div id="toast" role="status"></div>
+      </main>
+    </div>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>

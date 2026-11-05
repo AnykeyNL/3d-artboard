@@ -5,15 +5,15 @@ pattern and colours; the app generates **OpenSCAD** code for every tile and for 
 backplate that is cut into pieces that fit a **250 × 250 mm** bed (Bambu Lab
 printers by default).
 
-![Burst pattern on an oval board](docs/preview-burst-oval.png)
+![The web app](docs/app.png)
 
 ## Status
 
 | Step | What | State |
 | --- | --- | --- |
 | 1 | Geometry engine and OpenSCAD generator | done |
-| 2 | Web app with live 3D preview | next |
-| 3 | Print export (STL/3MF per colour, assembly map, part count) | planned |
+| 2 | Web app with live 3D preview | done |
+| 3 | Print export (STL/3MF per colour, assembly map, part count) | next |
 | 4 | Polish and publish | planned |
 
 ## What you can set
@@ -39,10 +39,11 @@ printers by default).
 
 ![Backplate section with pins](docs/backplate-section.png)
 
-## Try it (command line, for now)
+## Run it
 
 ```bash
 npm install
+npm run dev                                             # web app on http://localhost:5173
 npm run generate -- examples/vortex-small.json          # writes out/vortex-small/artboard.scad
 npm run generate -- examples/vortex-small.json --stl    # also renders every part with OpenSCAD
 npm test
@@ -67,4 +68,10 @@ src/core/backplate.ts  bed-sized sections, pins, bowtie keys
 src/core/packing.ts    print-plate packing
 src/core/scad.ts       OpenSCAD emitter
 src/core/design.ts     puts it together, checks limits, filament estimate
+src/app/               web app: parameter panel, three.js preview, downloads
 ```
+
+The app keeps the whole design in the page link, so **Share** copies a URL that
+reopens exactly the same board. **Save design** and **Load design** use a small JSON file.
+
+![Burst pattern on an oval board, rendered in OpenSCAD](docs/preview-burst-oval.png)
