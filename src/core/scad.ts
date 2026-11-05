@@ -4,7 +4,8 @@
 import { Design } from './design';
 import { KEY } from './backplate';
 import { bbox } from './geometry';
-import { PAD, padSpokes } from './mesh';
+import { PAD, padSpokes, padCentres } from './mesh';
+import { LABEL, pinSpec } from './params';
 import type { Section } from './backplate';
 
 const f = (n: number) => {
@@ -31,20 +32,46 @@ module tile_body(b, t) {
   polyhedron(points = pts, faces = concat(bottom, walls, top), convexity = 4);
 }
 
+module socket(d) {
+  translate([0, 0, -0.01]) cylinder(d = d, h = SOCKET_H + 0.01);
+  translate([0, 0, -0.01]) cylinder(d1 = d + 0.8, d2 = d, h = 0.41);
+}
+
+// Seven-segment digits, mirrored so the number reads right on the tile's bottom.
+SEG7 = [[1,1,1,1,1,1,0],[0,1,1,0,0,0,0],[1,1,0,1,1,0,1],[1,1,1,1,0,0,1],[0,1,1,0,0,1,1],
+        [1,0,1,1,0,1,1],[1,0,1,1,1,1,1],[1,1,1,0,0,0,0],[1,1,1,1,1,1,1],[1,1,1,1,0,1,1]];
+
+module digit7(n, h) {
+  s = max(0.7, 0.16 * h); w = 0.55 * h;
+  segs = [[0, h-s, w, h], [w-s, (h-s)/2, w, h], [w-s, 0, w, (h+s)/2], [0, 0, w, s],
+          [0, 0, s, (h+s)/2], [0, (h-s)/2, s, h], [0, (h-s)/2, w, (h+s)/2]];
+  for (k = [0:6]) if (SEG7[n][k] == 1)
+    translate([segs[k][0], segs[k][1]]) square([segs[k][2] - segs[k][0], segs[k][3] - segs[k][1]]);
+}
+
+module label2d(num, h) {
+  st = str(num);
+  w = 0.55 * h; gap = 0.25 * h;
+  total = len(st) * w + (len(st) - 1) * gap;
+  mirror([1, 0]) for (k = [0:len(st)-1])
+    translate([-total / 2 + k * (w + gap), -h / 2]) digit7(ord(st[k]) - 48, h);
+}
+
+// TILES[i]: socket in the centre (t[5]), offset key socket (t[6]) so the tile
+// fits one way only, and the tile number engraved in the bottom (t[7]).
 module tile(i) {
   t = TILES[i];
   difference() {
     tile_body(t[3], t[4]);
-    if (t[5] == 1) {
-      translate([0, 0, -0.01]) cylinder(d = SOCKET_D, h = SOCKET_H + 0.01);
-      translate([0, 0, -0.01]) cylinder(d1 = SOCKET_D + 0.8, d2 = SOCKET_D, h = 0.41);
-    }
+    if (t[5] == 1) socket(SOCKET_D);
+    if (len(t[6]) > 0) translate(t[6]) socket(KEY_SOCKET_D);
+    if (len(t[7]) > 0) translate([t[7][0], t[7][1], -0.01]) linear_extrude(LABEL_DEPTH + 0.01) label2d(i + 1, t[7][2]);
   }
 }
 
-module pin() {
-  cylinder(d = PIN_D, h = PIN_H - 0.6);
-  translate([0, 0, PIN_H - 0.6]) cylinder(d1 = PIN_D, d2 = PIN_D - 1, h = 0.6);
+module pin(d = PIN_D) {
+  cylinder(d = d, h = PIN_H - 0.6);
+  translate([0, 0, PIN_H - 0.6]) cylinder(d1 = d, d2 = d - 1, h = 0.6);
 }
 
 module bowtie(grow = 0) {
@@ -69,8 +96,8 @@ module hc_holes(lo, hi) {
 }
 
 module hc_solids(s) {
-  pad_r = (MOUNT == "pressfit" ? PIN_D / 2 : 4) + PAD_MARGIN;
-  centres = MOUNT == "pressfit" ? s[2] : [for (ti = s[4]) [TILES[ti][0], TILES[ti][1]]];
+  pad_r = (PINS ? PIN_D : 8) / 2 + PAD_MARGIN;
+  centres = PINS ? concat(s[2], s[7]) : [for (ti = s[4]) [TILES[ti][0], TILES[ti][1]]];
   for (c = centres) translate(c) circle(r = pad_r, $fn = 20);
   for (sp = s[6]) translate([sp[0], sp[1]]) rotate(sp[2]) translate([0, -HC_RIB / 2]) square([sp[3], HC_RIB]);
   for (k = s[3]) translate([k[0], k[1]]) rotate(k[2]) bowtie(PAD_MARGIN);
@@ -103,7 +130,10 @@ module section_abs(i) {
           linear_extrude(GUIDE_DEPTH + 0.01)
             difference() { offset(delta = GUIDE_W / 2) polygon(t[3]); offset(delta = -GUIDE_W / 2) polygon(t[3]); }
   }
-  if (len(s[2]) > 0) for (q = s[2]) translate([q[0], q[1], PLATE_T - 0.01]) pin();
+  if (PINS) {
+    for (q = s[2]) translate([q[0], q[1], PLATE_T - 0.01]) pin();
+    for (q = s[7]) translate([q[0], q[1], PLATE_T - 0.01]) pin(KEY_PIN_D);
+  }
 }
 
 // Section moved to the print-bed origin.
@@ -151,7 +181,8 @@ else if (part == "fit_test") fit_test();
 
 export function toScad(d: Design): string {
   const p = d.params;
-  const socketD = p.mount.pinDiameter + p.mount.clearance;
+  const spec = pinSpec(p);
+  const pin = spec ?? { d: p.mount.pinDiameter, h: p.mount.pinHeight, clearance: p.mount.clearance, keyD: 3 };
   const lines: string[] = [];
   lines.push('// 3D ArtBoard — generated OpenSCAD design. Do not edit the data by hand;');
   lines.push('// change the parameters in the app and generate again.');
@@ -168,10 +199,14 @@ export function toScad(d: Design): string {
   lines.push(`WALL = ${f(p.tiles.wall)};`);
   lines.push(`PLATE_T = ${f(p.backplate.thickness)};`);
   lines.push(`MOUNT = "${p.mount.type}";`);
-  lines.push(`PIN_D = ${f(p.mount.pinDiameter)};`);
-  lines.push(`PIN_H = ${f(p.mount.pinHeight)};`);
-  lines.push(`SOCKET_D = ${f(socketD)};`);
-  lines.push(`SOCKET_H = ${f(p.mount.pinHeight + 0.4)};`);
+  lines.push(`PINS = ${spec ? 'true' : 'false'}; // pins on the backplate (press-fit, or short locators in glue mode)`);
+  lines.push(`PIN_D = ${f(pin.d)};`);
+  lines.push(`PIN_H = ${f(pin.h)};`);
+  lines.push(`KEY_PIN_D = ${f(pin.keyD)};`);
+  lines.push(`SOCKET_D = ${f(pin.d + pin.clearance)};`);
+  lines.push(`KEY_SOCKET_D = ${f(pin.keyD + pin.clearance)};`);
+  lines.push(`SOCKET_H = ${f(pin.h + 0.4)};`);
+  lines.push(`LABEL_DEPTH = ${f(LABEL.depth)};`);
   lines.push(`GUIDES = ${p.mount.guides ? 'true' : 'false'};`);
   lines.push('GUIDE_DEPTH = 0.6;');
   lines.push('GUIDE_W = 0.8;');
@@ -187,22 +222,22 @@ export function toScad(d: Design): string {
   lines.push('PLATE_COLOR = "#d8d4cc";');
   lines.push(`COLORS = ${list(d.palette, (c) => JSON.stringify(c))};`);
   lines.push('');
-  lines.push('// TILES[i] = [x, y, colour, base polygon, top points, has socket]');
+  lines.push('// TILES[i] = [x, y, colour, base polygon, top points, has socket, key socket [x, y], label [x, y, height]]');
   lines.push('TILES = [');
   lines.push(
     d.tiles
-      .map((t) => `  [${f(t.center[0])},${f(t.center[1])},${t.color},${list(t.base, v2)},${list(t.top, v3)},${t.socket ? 1 : 0}]`)
+      .map((t) => `  [${f(t.center[0])},${f(t.center[1])},${t.color},${list(t.base, v2)},${list(t.top, v3)},${t.socket ? 1 : 0},${t.key ? v2(t.key) : '[]'},${t.label ? v3([t.label.x, t.label.y, t.label.h]) : '[]'}]`)
       .join(',\n'),
   );
   lines.push('];');
   lines.push('');
-  lines.push('// SECTIONS[i] = [[minX, minY] of outline, outline, pins, key pockets [x, y, angle], tile ids, [maxX, maxY], pad spokes [x, y, angle, length]]');
+  lines.push('// SECTIONS[i] = [[minX, minY] of outline, outline, pins, key pockets [x, y, angle], tile ids, [maxX, maxY], pad spokes [x, y, angle, length], key pins]');
   lines.push('SECTIONS = [');
   lines.push(
     d.sections
       .map(
         (s) =>
-          `  [${v2([bbox(s.poly).minX, bbox(s.poly).minY])},${list(s.poly, v2)},${list(s.pins, v2)},${list(s.keys, v3)},[${s.tiles.join(',')}],${v2([bbox(s.poly).maxX, bbox(s.poly).maxY])},${list(spokesFor(d, s), (q) => `[${q.map(f).join(',')}]`)}]`,
+          `  [${v2([bbox(s.poly).minX, bbox(s.poly).minY])},${list(s.poly, v2)},${list(s.pins, v2)},${list(s.keys, v3)},[${s.tiles.join(',')}],${v2([bbox(s.poly).maxX, bbox(s.poly).maxY])},${list(spokesFor(d, s), (q) => `[${q.map(f).join(',')}]`)},${list(s.keyPins, v2)}]`,
       )
       .join(',\n'),
   );
@@ -237,6 +272,6 @@ function keyShape(): number[][] {
 function spokesFor(d: Design, s: Section): number[][] {
   const p = d.params;
   if (p.backplate.style !== 'honeycomb') return [];
-  const centres = p.mount.type === 'pressfit' ? s.pins : s.tiles.map((id) => d.tiles[id].center);
+  const centres = padCentres(d, s);
   return centres.flatMap(([x, y]) => padSpokes(p, x, y).map(([a, len]) => [x, y, a, len]));
 }

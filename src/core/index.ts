@@ -10,3 +10,4 @@ export * from './design';
 export * from './scad';
 export * from './mesh';
 export * from './export';
+export * from './label';

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateDesign, tileMesh, bbox, toScad, PATTERNS, OutlineShape, TileShape, PartialParams } from '../src/core/index';
+import { generateDesign, tileMesh, bbox, toScad, PATTERNS, OutlineShape, TileShape, PartialParams, pinSpec } from '../src/core/index';
 
 const outlines: OutlineShape[] = ['square', 'rounded', 'oval', 'circle'];
 const shapes: TileShape[] = ['square', 'hex', 'triangle'];
@@ -98,10 +98,29 @@ describe('design generation', () => {
     expect(generateDesign({ colors: { count: 9 } }).errors.length).toBeGreaterThan(0);
   });
 
-  it('glue mode has no pins or sockets', () => {
-    const d = generateDesign({ mount: { type: 'glue' } });
+  it('glue mode without locators has no pins or sockets', () => {
+    const d = generateDesign({ mount: { type: 'glue', locators: false } });
     expect(d.stats.pins).toBe(0);
-    expect(d.tiles.every((t) => !t.socket)).toBe(true);
+    expect(d.tiles.every((t) => !t.socket && !t.key)).toBe(true);
+  });
+
+  it('glue mode with locators uses short locator pins', () => {
+    const d = generateDesign({ mount: { type: 'glue' } });
+    const spec = pinSpec(d.params)!;
+    expect(spec.h).toBeLessThan(2);
+    expect(d.stats.pins).toBeGreaterThan(0);
+  });
+
+  it('keyed tiles fit one way only and every tile gets a unique number', () => {
+    for (const shape of ['triangle', 'square', 'hex'] as const) {
+      const d = generateDesign({ tiles: { shape, size: 60 }, mount: { type: 'pressfit' } });
+      const socketed = d.tiles.filter((t) => t.socket);
+      const keyed = socketed.filter((t) => t.key);
+      expect(keyed.length / socketed.length).toBeGreaterThan(0.9);
+      for (const t of keyed) expect(Math.hypot(t.key![0], t.key![1])).toBeGreaterThan(0);
+      const labelled = d.tiles.filter((t) => t.label);
+      expect(labelled.length / d.tiles.length).toBeGreaterThan(0.9);
+    }
   });
 
   it('uses only the requested number of colours', () => {

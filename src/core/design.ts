@@ -89,11 +89,19 @@ export function generateDesign(input: PartialParams | DesignParams): Design {
 
   const unsocketed = params.mount.type === 'pressfit' ? tiles.filter((t) => !t.socket).length : 0;
   if (unsocketed) warnings.push(`${unsocketed} small edge tile(s) are too narrow for a pin and need glue.`);
+  if (params.mount.labels) {
+    const unlabelled = tiles.filter((t) => !t.label).length;
+    if (unlabelled) warnings.push(`${unlabelled} tile(s) are too small for an engraved number; find them on the plate maps.`);
+  }
   const overhangs = tiles.filter((t) => t.overhang).length;
   if (overhangs) warnings.push(`${overhangs} tile tip(s) overhang their base; turn on "keep tips inside" or expect supports.`);
 
   const { sections, warnings: sw } = buildSections(params, outline, tiles);
   warnings.push(...sw);
+  if (params.mount.keyPin) {
+    const unkeyed = tiles.filter((t) => t.socket && !t.key).length;
+    if (unkeyed) warnings.push(`${unkeyed} tile(s) have no room for a second pin; check their orientation on the assembly map.`);
+  }
 
   // Each key joins two sections and is listed on both.
   const keyCount = sections.reduce((n, s) => n + s.keys.length, 0) / 2;
@@ -132,7 +140,7 @@ export function generateDesign(input: PartialParams | DesignParams): Design {
     stats: {
       tiles: tiles.length,
       tilesPerColor,
-      pins: sections.reduce((n, s) => n + s.pins.length, 0),
+      pins: sections.reduce((n, s) => n + s.pins.length + s.keyPins.length, 0),
       gluedTiles: tiles.filter((t) => !t.socket).length,
       sections: sections.length,
       keys: keyCount,

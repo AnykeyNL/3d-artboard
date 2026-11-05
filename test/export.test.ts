@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { unzipSync, strFromU8 } from 'fflate';
 import {
   generateDesign, tileSolid, tileOptions, sectionSolid, keySolid, fitTestSolids, Mesh, toBinarySTL, to3MF,
-  buildPrintPack, assemblyMapSVG, meshVolume, area, KEY, PartialParams, sectionWeb,
+  buildPrintPack, assemblyMapSVG, meshVolume, area, KEY, PartialParams, sectionWeb, pinSpec,
 } from '../src/core/index';
 import * as clip from '../src/core/clip';
+import { PRESETS } from '../src/app/presets';
 
 function volume(m: Mesh): number {
   let v = 0;
@@ -51,7 +52,8 @@ describe('tile meshes', () => {
         expect(closed(m)).toBe(true);
         const v = volume(m);
         expect(v).toBeGreaterThan(0);
-        const socket = o.socketD ? Math.PI * (o.socketD / 2) ** 2 * o.socketH : 0;
+        const socket = o.sockets.reduce((a, k) => a + Math.PI * (k.d / 2) ** 2 * k.h, 0)
+          + (o.label ? o.label.region.reduce((a, poly) => a + clip.polyArea(poly), 0) * o.label.depth : 0);
         const expected = meshVolume(t, d.params.tiles.wall) - socket;
         expect(Math.abs(v - expected) / expected).toBeLessThan(0.03);
       }
@@ -78,7 +80,8 @@ describe('backplate meshes', () => {
           const inter = clip.intersection([shape], [s.poly as [number, number][]]);
           pockets += inter.reduce((acc, poly) => acc + clip.polyArea(poly), 0) * (p.backplate.thickness / 2);
         }
-        const pins = p.mount.type === 'pressfit' ? s.pins.length * Math.PI * (p.mount.pinDiameter / 2) ** 2 * p.mount.pinHeight : 0;
+        const spec = pinSpec(p);
+        const pins = spec ? s.pins.length * Math.PI * (spec.d / 2) ** 2 * spec.h + s.keyPins.length * Math.PI * (spec.keyD / 2) ** 2 * spec.h : 0;
         const expected = plate - pockets + pins;
         // Pins overlap the plate by 0.3 mm and pockets grow by the clearance; allow a few percent.
         expect(Math.abs(v - expected) / expected).toBeLessThan(0.04);
@@ -99,7 +102,7 @@ describe('backplate meshes', () => {
         const web = sectionWeb(honey, s);
         const inside = (x: number, y: number) =>
           web.some((poly) => pointInRing([x, y], poly[0]) && !poly.slice(1).some((h) => pointInRing([x, y], h)));
-        for (const [x, y] of s.pins) expect(inside(x, y)).toBe(true);
+        for (const [x, y] of [...s.pins, ...s.keyPins]) expect(inside(x, y)).toBe(true);
       }
     });
   }
@@ -160,3 +163,16 @@ function pointInRing(p: [number, number], ring: [number, number][]): boolean {
   }
   return inside;
 }
+
+describe('presets', () => {
+  it('every tile of every preset is a closed solid with a number and a one-way fit', () => {
+    for (const pr of PRESETS) {
+      const d = generateDesign(pr.params);
+      for (const t of d.tiles) {
+        expect(closed(tileSolid(t, tileOptions(d, t))), `${pr.name} tile ${t.id + 1}`).toBe(true);
+        expect(t.label, `${pr.name} tile ${t.id + 1} label`).not.toBeNull();
+        if (t.socket) expect(t.key, `${pr.name} tile ${t.id + 1} key`).not.toBeNull();
+      }
+    }
+  });
+});

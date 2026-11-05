@@ -1,7 +1,7 @@
 // Split the backplate into bed-sized sections, place press-fit pins, and add
 // bowtie keys that lock neighbouring sections together.
-import { DesignParams } from './params';
-import { Tile } from './tile';
+import { DesignParams, pinSpec } from './params';
+import { Tile, placeKey, placeLabel } from './tile';
 import { BBox, Polygon, Vec2, area, bbox, clipConvex, pointInConvex, rect } from './geometry';
 
 export interface Section {
@@ -12,8 +12,10 @@ export interface Section {
   cell: BBox;
   /** Outline of this section (absolute board coords). */
   poly: Polygon;
-  /** Pin positions (absolute). */
+  /** Centre pin positions (absolute). */
   pins: Vec2[];
+  /** Offset key pin positions (absolute). */
+  keyPins: Vec2[];
   /** Bowtie key pockets: [x, y, angleDeg] (absolute). */
   keys: [number, number, number][];
   /** Tiles whose centre lies on this section. */
@@ -86,7 +88,9 @@ export function buildSections(p: DesignParams, outline: Polygon, tiles: Tile[]):
   const warnings: string[] = [];
   const b = bbox(outline);
   const lim = usable(p);
-  const pinR = p.mount.pinDiameter / 2;
+  const spec = pinSpec(p);
+  const pinR = (spec?.d ?? 0) / 2;
+  const keyR = (spec?.keyD ?? 0) / 2;
   const pinPositions = tiles.filter((t) => t.socket).map((t) => t.center);
   const xs = chooseCuts(b.minX, b.maxX, lim.x, pinPositions.map((q) => q[0]), pinR + 1);
   const ys = chooseCuts(b.minY, b.maxY, lim.y, pinPositions.map((q) => q[1]), pinR + 1);
@@ -102,7 +106,7 @@ export function buildSections(p: DesignParams, outline: Polygon, tiles: Tile[]):
         grid[c][r] = null;
         continue;
       }
-      const s: Section = { id: sections.length, col: c, row: r, cell, poly, pins: [], keys: [], tiles: [] };
+      const s: Section = { id: sections.length, col: c, row: r, cell, poly, pins: [], keyPins: [], keys: [], tiles: [] };
       sections.push(s);
       grid[c][r] = s;
     }
@@ -120,12 +124,25 @@ export function buildSections(p: DesignParams, outline: Polygon, tiles: Tile[]):
     s.tiles.push(t.id);
     if (!t.socket) continue;
     const c = t.center;
-    const clear =
-      c[0] - pinR >= s.cell.minX && c[0] + pinR <= s.cell.maxX && c[1] - pinR >= s.cell.minY && c[1] + pinR <= s.cell.maxY;
-    if (clear) s.pins.push(c);
-    else {
+    const fits = (q: Vec2, r: number) =>
+      q[0] - r >= s.cell.minX && q[0] + r <= s.cell.maxX && q[1] - r >= s.cell.minY && q[1] + r <= s.cell.maxY;
+    if (fits(c, pinR)) {
+      s.pins.push(c);
+      if (t.key) {
+        const k: Vec2 = [c[0] + t.key[0], c[1] + t.key[1]];
+        if (fits(k, keyR)) s.keyPins.push(k);
+        else {
+          // Key pin would sit on a seam: try the other directions on this section.
+          placeKey(p, t, (o) => fits([c[0] + o[0], c[1] + o[1]], keyR));
+          if (t.key) s.keyPins.push([c[0] + t.key[0], c[1] + t.key[1]]);
+          placeLabel(p, t);
+        }
+      }
+    } else {
       // A pin on a seam can't be printed in one piece: glue that tile instead.
       t.socket = false;
+      t.key = null;
+      placeLabel(p, t);
       straddling++;
     }
   }

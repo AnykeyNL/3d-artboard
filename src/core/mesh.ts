@@ -1,12 +1,15 @@
 // Printable meshes built directly in TypeScript (no CSG engine needed), so the
 // browser can export STL/3MF in seconds. Geometry matches the OpenSCAD file.
 // Convention here: triangles are counter-clockwise seen from outside (STL/three.js).
-import earcut from 'earcut';
+import earcut, { deviation } from 'earcut';
+import * as P2T from 'poly2tri';
 import * as PC from './clip';
 import { Design } from './design';
 import { Section, KEY, bowtie } from './backplate';
 import { Tile } from './tile';
 import { Polygon, Vec2, Vec3, signedArea, bbox, insetConvex } from './geometry';
+import { LABEL, pinSpec } from './params';
+import { labelRects } from './label';
 
 export class Mesh {
   /** Flat triangle soup: 9 numbers per triangle. */
@@ -34,7 +37,39 @@ export class Mesh {
       if (i > 0) holes.push(flat.length / 2);
       for (const p of r) flat.push(p[0], p[1]);
     });
-    const idx = earcut(flat, holes.length ? holes : undefined);
+    // earcut's hole bridging can go wrong on some layouts (numbers lined up
+    // under sockets). Try a few rotations and keep the first exact result.
+    let idx: number[] = [];
+    let best = Infinity;
+    for (const ang of [0.3141, 0, 1.1, 2.3, 0.77, 1.9, 2.9, 0.05]) {
+      const rot = new Array<number>(flat.length);
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      for (let v = 0; v < flat.length; v += 2) {
+        rot[v] = flat[v] * ca - flat[v + 1] * sa;
+        rot[v + 1] = flat[v] * sa + flat[v + 1] * ca;
+      }
+      const cand = earcut(rot, holes.length ? holes : undefined);
+      const dv = holes.length ? deviation(flat, holes, 2, cand) : 0;
+      if (dv < best) { best = dv; idx = cand; }
+      if (dv < 1e-9) break;
+    }
+    // Still wrong: fall back to a constrained Delaunay triangulation.
+    if (best > 1e-9) {
+      try {
+        const pts = rings.map((r, ri) => {
+          const off = ri === 0 ? 0 : holes[ri - 1];
+          return r.map((q, k) => Object.assign(new P2T.Point(q[0], q[1]), { _i: off + k }));
+        });
+        const ctx = new P2T.SweepContext(pts[0]);
+        for (const h of pts.slice(1)) ctx.addHole(h);
+        ctx.triangulate();
+        const cdt: number[] = [];
+        for (const tr of ctx.getTriangles()) for (const k of [0, 1, 2] as const) cdt.push((tr.getPoint(k) as unknown as { _i: number })._i);
+        if (deviation(flat, holes, 2, cdt) < best) idx = cdt;
+      } catch {
+        // keep the best earcut result
+      }
+    }
     // earcut can leave a ring vertex lying on a triangle edge (collinear holes).
     // Find those and split the triangle so caps meet the walls edge to edge.
     const n = flat.length / 2;
@@ -183,11 +218,20 @@ function edgeNormal(a: Vec2, b: Vec2): Vec2 {
 
 // ---------- tiles ----------
 
+export interface SocketSpec {
+  x: number;
+  y: number;
+  /** Bore diameter (pin + clearance). */
+  d: number;
+  /** Depth. */
+  h: number;
+}
+
 export interface TileSolidOptions {
   wall: number;
-  /** Socket diameter (pin + clearance), or 0 for none. */
-  socketD: number;
-  socketH: number;
+  sockets: SocketSpec[];
+  /** Engraved region on the bottom (already mirrored) and its depth. */
+  label?: { region: PC.MultiPolygon; depth: number };
 }
 
 /** Closed mesh of a tile in its own coordinates (base centre at origin, base on z=0). */
@@ -196,13 +240,13 @@ export function tileSolid(tile: Pick<Tile, 'base' | 'top'>, o: TileSolidOptions)
   const base = tile.base;
   const n = base.length;
   const w = o.wall;
+  const seg = 32;
 
-  if (o.socketD > 0) {
-    const seg = 32;
-    const entry = circle((o.socketD + 0.8) / 2, seg);
-    const bore = circle(o.socketD / 2, seg);
-    // Bottom with the socket opening.
-    m.cap([base, [...entry].reverse()], 0, false);
+  const bottomHoles: Polygon[] = [];
+  for (const sk of o.sockets) {
+    const entry = circle((sk.d + 0.8) / 2, seg, sk.x, sk.y);
+    const bore = circle(sk.d / 2, seg, sk.x, sk.y);
+    bottomHoles.push([...entry].reverse());
     // Entry chamfer and bore face into the hole (reverse winding).
     for (let i = 0; i < seg; i++) {
       const j = (i + 1) % seg;
@@ -210,17 +254,31 @@ export function tileSolid(tile: Pick<Tile, 'base' | 'top'>, o: TileSolidOptions)
       const e1: Vec3 = [entry[j][0], entry[j][1], 0];
       const c0: Vec3 = [bore[i][0], bore[i][1], 0.4];
       const c1: Vec3 = [bore[j][0], bore[j][1], 0.4];
-      const t0: Vec3 = [bore[i][0], bore[i][1], o.socketH];
-      const t1: Vec3 = [bore[j][0], bore[j][1], o.socketH];
+      const t0: Vec3 = [bore[i][0], bore[i][1], sk.h];
+      const t1: Vec3 = [bore[j][0], bore[j][1], sk.h];
       m.tri(e0, c1, e1);
       m.tri(e0, c0, c1);
       m.tri(c0, t1, c1);
       m.tri(c0, t0, t1);
     }
-    m.cap([bore], o.socketH, false);
-  } else {
-    m.cap([base], 0, false);
+    m.cap([bore], sk.h, false);
   }
+
+  const islands: Polygon[][] = [];
+  if (o.label) {
+    const dz = o.label.depth;
+    for (const poly of o.label.region) {
+      const rings = normaliseRings(poly as Polygon[]);
+      if (!rings.length) continue;
+      bottomHoles.push(rings[0]);
+      for (const h of rings.slice(1)) islands.push([h]);
+      // Pocket walls face into the pocket; its ceiling faces down.
+      for (const r of rings) for (let i = 0; i < r.length; i++) m.wall(r[(i + 1) % r.length], r[i], 0, dz);
+      m.cap(rings, dz, false);
+    }
+  }
+  m.cap([base, ...bottomHoles], 0, false);
+  for (const isl of islands) m.cap(isl, 0, false);
 
   for (let i = 0; i < n; i++) m.wall(base[i], base[(i + 1) % n], 0, w);
 
@@ -244,11 +302,14 @@ export function tileSolid(tile: Pick<Tile, 'base' | 'top'>, o: TileSolidOptions)
 
 export function tileOptions(d: Design, tile: Tile): TileSolidOptions {
   const p = d.params;
-  return {
-    wall: p.tiles.wall,
-    socketD: tile.socket ? p.mount.pinDiameter + p.mount.clearance : 0,
-    socketH: p.mount.pinHeight + 0.4,
-  };
+  const spec = pinSpec(p);
+  const sockets: SocketSpec[] = [];
+  if (spec && tile.socket) sockets.push({ x: 0, y: 0, d: spec.d + spec.clearance, h: spec.h + 0.4 });
+  if (spec && tile.key) sockets.push({ x: tile.key[0], y: tile.key[1], d: spec.keyD + spec.clearance, h: spec.h + 0.4 });
+  const label = tile.label
+    ? { region: PC.union(...labelRects(String(tile.id + 1), tile.label.h, tile.label.x, tile.label.y).map((r) => [r] as PC.Poly)), depth: LABEL.depth }
+    : undefined;
+  return { wall: p.tiles.wall, sockets, label };
 }
 
 // ---------- backplate ----------
@@ -375,8 +436,8 @@ export function sectionWeb(d: Design, s: Section): MP {
   if (inner.length < 3 || !holes.length) return full;
 
   const solids: PC.Poly[] = [];
-  const padR = (p.mount.type === 'pressfit' ? p.mount.pinDiameter / 2 : 4) + PAD.margin;
-  const centres: Vec2[] = p.mount.type === 'pressfit' ? s.pins : s.tiles.map((id) => d.tiles[id].center);
+  const centres = padCentres(d, s);
+  const padR = padRadius(p);
   for (const [x, y] of centres) {
     solids.push(toPC(circle(padR, 20, x, y)));
     for (const [a, len] of padSpokes(p, x, y)) solids.push(toPC(rotRect(x, y, a, len, p.backplate.rib)));
@@ -386,6 +447,15 @@ export function sectionWeb(d: Design, s: Section): MP {
   let cut = pc.intersection(pc.union(...holes), toPC(inner));
   if (solids.length) cut = pc.difference(cut, ...solids);
   return pc.difference(full, cut);
+}
+
+/** Where the honeycomb keeps solid pads: under every pin, or under tile centres when there are none. */
+export function padCentres(d: Design, s: Section): Vec2[] {
+  return pinSpec(d.params) ? [...s.pins, ...s.keyPins] : s.tiles.map((id) => d.tiles[id].center);
+}
+
+export function padRadius(p: Design['params']): number {
+  return (pinSpec(p)?.d ?? 8) / 2 + PAD.margin;
 }
 
 /**
@@ -432,8 +502,10 @@ export function sectionSolid(d: Design, s: Section): Mesh {
     const z1 = i < layers.length - 1 ? L.z1 + 0.02 : L.z1;
     for (const poly of L.region) m.prism(poly as Polygon[], L.z0, z1);
   });
-  if (p.mount.type === 'pressfit') {
-    for (const [x, y] of s.pins) m.append(pinSolid(p.mount.pinDiameter, p.mount.pinHeight, t).translated(x, y));
+  const spec = pinSpec(p);
+  if (spec) {
+    for (const [x, y] of s.pins) m.append(pinSolid(spec.d, spec.h, t).translated(x, y));
+    for (const [x, y] of s.keyPins) m.append(pinSolid(spec.keyD, spec.h, t, 16).translated(x, y));
   }
   return m;
 }
@@ -460,7 +532,7 @@ export function fitTestSolids(d: Design): Mesh {
       base: [[-s, -s], [s, -s], [s, s], [-s, s]] as Polygon,
       top: [[-s, -s, h], [s, -s, h], [s, s, h], [-s, s, h]] as Vec3[],
     };
-    m.append(tileSolid(block, { wall: h - 0.01, socketD: p.mount.pinDiameter + c, socketH: p.mount.pinHeight + 0.4 }).translated(9 + k * 14, 30));
+    m.append(tileSolid(block, { wall: h - 0.01, sockets: [{ x: 0, y: 0, d: p.mount.pinDiameter + c, h: p.mount.pinHeight + 0.4 }] }).translated(9 + k * 14, 30));
   });
   return m;
 }

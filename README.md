@@ -24,7 +24,13 @@ printers by default).
 - **Pattern**: pyramids, facets, dunes, ripple, burst, vortex, waves, noise. You can also set the scale, lean, twist, variation, centre and seed, and invert the heights.
 - **Colours**: 1–8 colours, one per tile, mapped automatically by pattern, height, radius, angle, direction or at random, with optional mixing at the borders.
 - **Mounting**: *press-fit* (pins on the backplate, sockets in the tiles) or *glue*
-  (flat tiles, with tile outlines engraved in the backplate as a placing guide).
+  (flat tiles, with tile outlines engraved in the backplate as a placing guide). Glue mode can
+  also use short 1.6 mm locator pins so tiles still drop into one place only.
+- **One-way fit**: every tile gets a second, smaller pin off centre, so it only fits on the
+  backplate the right way round, even when its outline is symmetric.
+- **Tile numbers**: each tile's number is engraved 0.4 mm into its bottom in a simple
+  seven-segment font, mirrored so it reads correctly when you turn the tile over. The numbers
+  match the assembly map and plate maps.
 
 ## How a board is built
 
@@ -42,6 +48,8 @@ printers by default).
   before printing hundreds of tiles.
 
 ![Honeycomb backplate section with pins](docs/honeycomb-section.png)
+
+![Tile bottom with main socket, key socket and engraved number](docs/tile-bottom.png)
 
 ## The print pack
 
@@ -83,6 +91,7 @@ src/core/patterns.ts   pattern fields (height, lean, colour value per tile)
 src/core/colors.ts     automatic colour mapping
 src/core/tile.ts       tile solids (shared by the OpenSCAD output and the preview)
 src/core/backplate.ts  bed-sized sections, pins, bowtie keys
+src/core/label.ts      engraved seven-segment tile numbers
 src/core/packing.ts    print-plate packing
 src/core/scad.ts       OpenSCAD emitter
 src/core/mesh.ts       printable meshes (tiles with sockets, backplate layers, pins, keys)

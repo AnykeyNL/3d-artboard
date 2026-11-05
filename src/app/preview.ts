@@ -2,7 +2,7 @@
 // hung on a wall so the shadows read like the real thing.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Design, tileMesh, sectionWeb } from '../core/index';
+import { Design, tileMesh, sectionWeb, pinSpec, Vec2 } from '../core/index';
 
 export type View = 'iso' | 'front' | 'side' | 'room';
 export type ShowMode = 'board' | 'backplate';
@@ -123,7 +123,7 @@ export class Preview {
   private webGeometry(d: Design, sid: number): THREE.BufferGeometry {
     const p = d.params;
     const s = d.sections[sid];
-    const key = JSON.stringify([s.poly, s.pins, s.keys, p.backplate, p.mount.type, p.mount.pinDiameter, p.mount.type === 'glue' ? s.tiles.map((id) => d.tiles[id].center) : 0]);
+    const key = JSON.stringify([s.poly, s.pins, s.keyPins, s.keys, p.backplate, p.mount, s.tiles.map((id) => d.tiles[id].center)]);
     const hit = this.webCache.get(key);
     if (hit) return hit;
     const shapes = sectionWeb(d, s).map((poly) => {
@@ -187,12 +187,17 @@ export class Preview {
     const z0 = p.backplate.thickness;
     if (onlyPlate) {
       // Seams as thin gaps are visible already; add the pins.
-      if (p.mount.type === 'pressfit') {
-        const pins = d.sections.flatMap((s) => s.pins);
-        if (pins.length) {
-          const pin = new THREE.CylinderGeometry(p.mount.pinDiameter / 2 - 0.25, p.mount.pinDiameter / 2, p.mount.pinHeight, 16);
+      const spec = pinSpec(p);
+      if (spec) {
+        const groups: [Vec2[], number][] = [
+          [d.sections.flatMap((s) => s.pins), spec.d],
+          [d.sections.flatMap((s) => s.keyPins), spec.keyD],
+        ];
+        for (const [pins, dia] of groups) {
+          if (!pins.length) continue;
+          const pin = new THREE.CylinderGeometry(dia / 2 - 0.25, dia / 2, spec.h, 16);
           pin.rotateX(Math.PI / 2);
-          pin.translate(0, 0, z0 + p.mount.pinHeight / 2);
+          pin.translate(0, 0, z0 + spec.h / 2);
           const inst = new THREE.InstancedMesh(pin, plateMat, pins.length);
           const mtx = new THREE.Matrix4();
           pins.forEach(([x, y], i) => inst.setMatrixAt(i, mtx.makeTranslation(x, y, 0)));

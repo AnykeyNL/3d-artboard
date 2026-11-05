@@ -81,6 +81,12 @@ export interface DesignParams {
     clearance: number;
     /** Glue mode: engrave tile outlines into the backplate to help placing. */
     guides: boolean;
+    /** Second, offset pin so each tile fits only one way round. */
+    keyPin: boolean;
+    /** Glue mode: short locator pins so tiles still go in the right place and orientation. */
+    locators: boolean;
+    /** Engrave each tile's number into its bottom. */
+    labels: boolean;
   };
 
   backplate: {
@@ -168,6 +174,9 @@ export function defaultParams(): DesignParams {
       pinHeight: 4,
       clearance: 0.15,
       guides: true,
+      keyPin: true,
+      locators: true,
+      labels: true,
     },
     backplate: {
       thickness: 5,
@@ -201,3 +210,24 @@ export function withDefaults(p: PartialParams = {}): DesignParams {
   };
   return merge(d, p);
 }
+
+/** Pins on the backplate (and sockets in the tiles), or null when tiles are only glued. */
+export interface PinSpec {
+  d: number;
+  h: number;
+  clearance: number;
+  /** Diameter of the offset key pin. */
+  keyD: number;
+}
+
+export function pinSpec(p: DesignParams): PinSpec | null {
+  const m = p.mount;
+  let spec: Omit<PinSpec, 'keyD'> | null = null;
+  if (m.type === 'pressfit') spec = { d: m.pinDiameter, h: m.pinHeight, clearance: m.clearance };
+  else if (m.locators) spec = { d: 4, h: 1.6, clearance: m.clearance + 0.2 };
+  if (!spec) return null;
+  return { ...spec, keyD: Math.max(2.4, Math.round(spec.d * 0.6 * 10) / 10) };
+}
+
+/** Number engraving on tile bottoms. */
+export const LABEL = { depth: 0.4, maxHeight: 6, minHeight: 2.5 };

@@ -1,8 +1,9 @@
 // Turn a laid-out cell plus a pattern sample into a printable tile solid.
-import { DesignParams } from './params';
+import { DesignParams, LABEL, pinSpec } from './params';
 import { Cell } from './layout';
 import { FieldSample } from './patterns';
-import { Polygon, Vec2, Vec3, insideDistance } from './geometry';
+import { Polygon, Vec2, Vec3, insideDistance, pointInConvex, insetConvex, bbox } from './geometry';
+import { labelSize } from './label';
 
 export interface Tile {
   id: number;
@@ -17,8 +18,12 @@ export interface Tile {
   top: Vec3[];
   /** Tallest point of the tile. */
   height: number;
-  /** Has a press-fit socket (and the backplate a pin under it). */
+  /** Has a socket at its centre (and the backplate a pin under it). */
   socket: boolean;
+  /** Offset key socket (relative to centre) that makes the fit one-way, or null. */
+  key: Vec2 | null;
+  /** Engraved number on the bottom: centre (relative) and character height, or null. */
+  label: { x: number; y: number; h: number } | null;
   edge: boolean;
   /** Tip sticks out past the footprint (only when clampOverhang is off). */
   overhang: boolean;
@@ -70,10 +75,108 @@ export function buildTile(p: DesignParams, cell: Cell, s: FieldSample, color: nu
   }
 
   const height = Math.max(...top.map((q) => q[2]));
-  const socket =
-    p.mount.type === 'pressfit' && inr >= (p.mount.pinDiameter + p.mount.clearance) / 2 + 1.2;
+  const spec = pinSpec(p);
+  const socket = !!spec && inr >= (spec.d + spec.clearance) / 2 + 1.2;
+  const tile: Tile = { id, i: cell.i, j: cell.j, center: cell.center, color, base, top, height, socket, key: null, label: null, edge: cell.edge, overhang };
+  placeKey(p, tile);
+  placeLabel(p, tile);
+  return tile;
+}
 
-  return { id, i: cell.i, j: cell.j, center: cell.center, color, base, top, height, socket, edge: cell.edge, overhang };
+/** Radius of a socket opening on the tile bottom (bore + entry chamfer). */
+export function socketEntryR(d: number, clearance: number): number {
+  return (d + clearance + 0.8) / 2;
+}
+
+/** Sockets on a tile bottom: [x, y, entry radius]. */
+export function socketCircles(p: DesignParams, t: Tile): [number, number, number][] {
+  const spec = pinSpec(p);
+  if (!spec) return [];
+  const out: [number, number, number][] = [];
+  if (t.socket) out.push([0, 0, socketEntryR(spec.d, spec.clearance)]);
+  if (t.key) out.push([t.key[0], t.key[1], socketEntryR(spec.keyD, spec.clearance)]);
+  return out;
+}
+
+/**
+ * Second pin, off centre. With two pins a tile fits only one way round, even
+ * when its outline is symmetric. Prefer "up" so keys line up across the board.
+ */
+export function placeKey(p: DesignParams, t: Tile, accept: (k: Vec2) => boolean = () => true) {
+  t.key = null;
+  const spec = pinSpec(p);
+  if (!spec || !t.socket || !p.mount.keyPin) return;
+  const mainR = socketEntryR(spec.d, spec.clearance);
+  const keyR = socketEntryR(spec.keyD, spec.clearance);
+  const dist = mainR + keyR + 1.2;
+  for (const deg of [90, 270, 0, 180, 45, 135, 225, 315]) {
+    const a = (deg * Math.PI) / 180;
+    for (let o = dist; o <= dist + 6; o += 1) {
+      const k: Vec2 = [o * Math.cos(a), o * Math.sin(a)];
+      if (insideDistance(k, t.base) >= keyR + 1 && accept(k)) {
+        t.key = k;
+        return;
+      }
+    }
+  }
+}
+
+/** Find room for the tile number on the bottom, clear of the sockets. */
+export function placeLabel(p: DesignParams, t: Tile) {
+  t.label = null;
+  if (!p.mount.labels) return;
+  const text = String(t.id + 1);
+  const holes = socketCircles(p, t);
+  const room = insetConvex(t.base, 0.8);
+  if (room.length < 3) return;
+  const fits = (x: number, y: number, w: number, hh: number) => {
+    const corners: Vec2[] = [[x - w / 2, y - hh / 2], [x + w / 2, y - hh / 2], [x + w / 2, y + hh / 2], [x - w / 2, y + hh / 2]];
+    if (!corners.every((c) => pointInConvex(c, room))) return false;
+    return holes.every(([sx, sy, sr]) => {
+      const dx = Math.max(Math.abs(sx - x) - w / 2, 0);
+      const dy = Math.max(Math.abs(sy - y) - hh / 2, 0);
+      return Math.hypot(dx, dy) >= sr + 0.6;
+    });
+  };
+  const inr = insideDistance([0, 0], t.base);
+  const away = t.key ? Math.atan2(-t.key[1], -t.key[0]) : -Math.PI / 2;
+  const dirs = [away, away + Math.PI / 2, away - Math.PI / 2, away + Math.PI];
+  const sizes = (from: number) => {
+    const out: number[] = [];
+    for (let h = Math.min(LABEL.maxHeight, Math.max(LABEL.minHeight, from * 0.45)); h >= LABEL.minHeight - 1e-9; h -= 0.5) out.push(h);
+    return out;
+  };
+  // Preferred: on a line from the centre, away from the key pin.
+  for (const h of sizes(inr)) {
+    const { w, h: hh } = labelSize(text, h);
+    for (const a of dirs) {
+      for (let r = 0; r <= inr; r += 0.5) {
+        const x = r * Math.cos(a);
+        const y = r * Math.sin(a);
+        if (fits(x, y, w, hh)) {
+          t.label = { x, y, h };
+          return;
+        }
+      }
+    }
+  }
+  // Clipped edge tiles can have their pin near one side and room elsewhere:
+  // search the whole bottom, closest to the centre first.
+  const b = bbox(t.base);
+  const grid: Vec2[] = [];
+  for (let x = b.minX; x <= b.maxX; x += 0.5) for (let y = b.minY; y <= b.maxY; y += 0.5) if (insideDistance([x, y], t.base) > LABEL.minHeight / 2) grid.push([x, y]);
+  if (!grid.length) return;
+  grid.sort((u, v) => Math.hypot(u[0], u[1]) - Math.hypot(v[0], v[1]));
+  const widest = Math.max(...grid.map((g) => insideDistance(g, t.base)));
+  for (const h of sizes(widest)) {
+    const { w, h: hh } = labelSize(text, h);
+    for (const [x, y] of grid) {
+      if (fits(x, y, w, hh)) {
+        t.label = { x, y, h };
+        return;
+      }
+    }
+  }
 }
 
 /** Triangle mesh of a tile body (no socket). Same layout the OpenSCAD module uses. */

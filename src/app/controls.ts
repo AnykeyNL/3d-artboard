@@ -119,6 +119,9 @@ export const GROUPS: Group[] = [
       { kind: 'range', path: 'mount.pinHeight', label: 'Pin height', min: 2, max: 10, step: 0.5, unit: 'mm', showIf: (p) => p.mount.type === 'pressfit' },
       { kind: 'range', path: 'mount.clearance', label: 'Fit clearance', hint: 'print the fit test to tune', min: 0, max: 0.5, step: 0.05, unit: 'mm', showIf: (p) => p.mount.type === 'pressfit' },
       { kind: 'toggle', path: 'mount.guides', label: 'Engrave tile outlines on the backplate', showIf: (p) => p.mount.type === 'glue' },
+      { kind: 'toggle', path: 'mount.locators', label: 'Short locator pins', hint: 'tiles still go in one place only', showIf: (p) => p.mount.type === 'glue' },
+      { kind: 'toggle', path: 'mount.keyPin', label: 'One-way fit', hint: 'second offset pin, so a tile only fits the right way round', showIf: (p) => p.mount.type === 'pressfit' || p.mount.locators },
+      { kind: 'toggle', path: 'mount.labels', label: 'Engrave tile numbers on the bottom', hint: '0.4 mm deep' },
       {
         kind: 'segmented', path: 'backplate.style', label: 'Backplate',
         options: [
