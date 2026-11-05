@@ -2,12 +2,11 @@
 // browser can export STL/3MF in seconds. Geometry matches the OpenSCAD file.
 // Convention here: triangles are counter-clockwise seen from outside (STL/three.js).
 import earcut from 'earcut';
-import polygonClipping from 'polygon-clipping';
-import type * as PC from 'polygon-clipping';
+import * as PC from './clip';
 import { Design } from './design';
 import { Section, KEY, bowtie } from './backplate';
 import { Tile } from './tile';
-import { Polygon, Vec2, Vec3, signedArea } from './geometry';
+import { Polygon, Vec2, Vec3, signedArea, bbox, insetConvex } from './geometry';
 
 export class Mesh {
   /** Flat triangle soup: 9 numbers per triangle. */
@@ -36,14 +35,48 @@ export class Mesh {
       for (const p of r) flat.push(p[0], p[1]);
     });
     const idx = earcut(flat, holes.length ? holes : undefined);
+    // earcut can leave a ring vertex lying on a triangle edge (collinear holes).
+    // Find those and split the triangle so caps meet the walls edge to edge.
+    const n = flat.length / 2;
+    const cell = 4;
+    const grid = new Map<string, number[]>();
+    for (let v = 0; v < n; v++) {
+      const k = `${Math.floor(flat[2 * v] / cell)},${Math.floor(flat[2 * v + 1] / cell)}`;
+      (grid.get(k) ?? grid.set(k, []).get(k)!).push(v);
+    }
+    const onEdge = (a: number, b: number): number[] => {
+      const ax = flat[2 * a], ay = flat[2 * a + 1], bx = flat[2 * b], by = flat[2 * b + 1];
+      const len = Math.hypot(bx - ax, by - ay);
+      if (len < 1e-9) return [];
+      const found: [number, number][] = [];
+      for (let gx = Math.floor(Math.min(ax, bx) / cell); gx <= Math.floor(Math.max(ax, bx) / cell); gx++) {
+        for (let gy = Math.floor(Math.min(ay, by) / cell); gy <= Math.floor(Math.max(ay, by) / cell); gy++) {
+          for (const v of grid.get(`${gx},${gy}`) ?? []) {
+            if (v === a || v === b) continue;
+            const px = flat[2 * v], py = flat[2 * v + 1];
+            const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / (len * len);
+            if (t <= 1e-9 || t >= 1 - 1e-9) continue;
+            const dist = Math.abs((bx - ax) * (py - ay) - (by - ay) * (px - ax)) / len;
+            if (dist < 1e-6) found.push([t, v]);
+          }
+        }
+      }
+      return found.sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+    };
+    const P = (v: number): Vec3 => [flat[2 * v], flat[2 * v + 1], z];
     for (let i = 0; i < idx.length; i += 3) {
-      const p = (k: number): Vec3 => [flat[2 * idx[i + k]], flat[2 * idx[i + k] + 1], z];
-      let a = p(0);
-      let b = p(1);
-      const c = p(2);
-      const ccw = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0;
-      if (ccw !== up) [a, b] = [b, a];
-      this.tri(a, b, c);
+      let [a, b, c] = [idx[i], idx[i + 1], idx[i + 2]];
+      const cross = (flat[2 * b] - flat[2 * a]) * (flat[2 * c + 1] - flat[2 * a + 1]) - (flat[2 * b + 1] - flat[2 * a + 1]) * (flat[2 * c] - flat[2 * a]);
+      if (Math.abs(cross) < 1e-9) continue;
+      if (cross < 0) [b, c] = [c, b]; // now CCW
+      const ring = [a, ...onEdge(a, b), b, ...onEdge(b, c), c, ...onEdge(c, a)];
+      const emit = (p: Vec3, q: Vec3, r: Vec3) => (up ? this.tri(p, q, r) : this.tri(p, r, q));
+      if (ring.length === 3) {
+        emit(P(a), P(b), P(c));
+      } else {
+        const m: Vec3 = [(flat[2 * a] + flat[2 * b] + flat[2 * c]) / 3, (flat[2 * a + 1] + flat[2 * b + 1] + flat[2 * c + 1]) / 3, z];
+        for (let k = 0; k < ring.length; k++) emit(m, P(ring[k]), P(ring[(k + 1) % ring.length]));
+      }
     }
   }
 
@@ -71,16 +104,41 @@ export class Mesh {
   }
 }
 
-/** Outer ring CCW, holes CW, no repeated closing point. */
+/**
+ * Outer ring CCW, holes CW, no repeated or collinear points. (earcut drops
+ * collinear points from caps, so walls must not keep them either, or the
+ * mesh gets T-junctions.)
+ */
 function normaliseRings(rings: Polygon[]): Polygon[] {
-  return rings.map((r, i) => {
-    let ring = r;
-    const f = ring[0];
-    const l = ring[ring.length - 1];
-    if (ring.length > 1 && f[0] === l[0] && f[1] === l[1]) ring = ring.slice(0, -1);
-    const ccw = signedArea(ring) > 0;
-    return (i === 0) === ccw ? ring : [...ring].reverse();
+  return rings
+    .map((r, i) => {
+      const ring = dropCollinear(r);
+      const ccw = signedArea(ring) > 0;
+      return (i === 0) === ccw ? ring : [...ring].reverse();
+    })
+    .filter((r) => r.length >= 3);
+}
+
+function dropCollinear(r: Polygon): Polygon {
+  let pts = r.filter((p, i) => {
+    const q = r[(i + 1) % r.length];
+    return Math.abs(p[0] - q[0]) > 1e-9 || Math.abs(p[1] - q[1]) > 1e-9;
   });
+  let changed = true;
+  while (changed && pts.length > 3) {
+    changed = false;
+    const keep: Polygon = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = keep.length ? keep[keep.length - 1] : pts[(i + pts.length - 1) % pts.length];
+      const b = pts[i];
+      const c = pts[(i + 1) % pts.length];
+      const cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+      if (Math.abs(cross) < 1e-9) changed = true;
+      else keep.push(b);
+    }
+    pts = keep;
+  }
+  return pts;
 }
 
 function circle(r: number, n = 32, cx = 0, cy = 0): Polygon {
@@ -195,19 +253,9 @@ export function tileOptions(d: Design, tile: Tile): TileSolidOptions {
 
 // ---------- backplate ----------
 
-const pc = polygonClipping;
+const pc = PC;
 type MP = PC.MultiPolygon;
-// Snap to a 1 µm grid: polygon-clipping is robust only when near-identical points coincide.
-const snap = (v: number) => Math.round(v * 1000) / 1000;
-const toPC = (p: Polygon): PC.Polygon => {
-  const ring: PC.Pair[] = [];
-  for (const [x, y] of p) {
-    const q: PC.Pair = [snap(x), snap(y)];
-    const last = ring[ring.length - 1];
-    if (!last || last[0] !== q[0] || last[1] !== q[1]) ring.push(q);
-  }
-  return [ring];
-};
+const toPC = (p: Polygon): PC.Poly => [p.map(([x, y]) => [x, y] as PC.Pair)];
 
 export function pinSolid(d: number, h: number, base: number, seg = 24): Mesh {
   // Starts 0.3 mm inside the plate so slicers merge it with the plate.
@@ -234,6 +282,112 @@ function bowtieAt(x: number, y: number, angDeg: number, grow: number): Polygon {
   return shape.map(([u, v]) => [x + u * Math.cos(a) - v * Math.sin(a), y + u * Math.sin(a) + v * Math.cos(a)]);
 }
 
+// ---------- honeycomb web ----------
+
+/** Pads around pins / tile centres; short spokes tie each pad to the nearest honeycomb walls. */
+export const PAD = { margin: 3 };
+
+export function honeycombGeometry(p: Design['params']) {
+  const R = p.backplate.cell / Math.sqrt(3); // circumradius of a flat-top hexagon
+  return {
+    R,
+    dx: 1.5 * R,
+    dy: Math.sqrt(3) * R,
+    holeR: ((p.backplate.cell / 2 - p.backplate.rib / 2) * 2) / Math.sqrt(3),
+  };
+}
+
+function hexAt(cx: number, cy: number, r: number): Polygon {
+  const out: Polygon = [];
+  for (let k = 0; k < 6; k++) out.push([cx + r * Math.cos((k * Math.PI) / 3), cy + r * Math.sin((k * Math.PI) / 3)]);
+  return out;
+}
+
+/**
+ * Spokes for a pad at (x, y): of the six directions straight at a hexagon's
+ * walls, the three shortest, each just long enough to reach into the wall.
+ */
+export function padSpokes(p: Design['params'], x: number, y: number): [number, number][] {
+  const hc = honeycombGeometry(p);
+  const i0 = Math.round(x / hc.dx);
+  let best: { cx: number; cy: number; d: number } | null = null;
+  for (let i = i0 - 1; i <= i0 + 1; i++) {
+    const off = Math.abs(i) % 2 === 1 ? hc.dy / 2 : 0;
+    const j = Math.round((y - off) / hc.dy);
+    for (let jj = j - 1; jj <= j + 1; jj++) {
+      const cx = i * hc.dx;
+      const cy = jj * hc.dy + off;
+      const dd = Math.hypot(x - cx, y - cy);
+      if (!best || dd < best.d) best = { cx, cy, d: dd };
+    }
+  }
+  if (!best) return [];
+  const apothem = (hc.holeR * Math.sqrt(3)) / 2;
+  const lx = x - best.cx;
+  const ly = y - best.cy;
+  // Inside the hole? Then spokes are needed.
+  const normals = [30, 90, 150, 210, 270, 330].map((a) => [Math.cos((a * Math.PI) / 180), Math.sin((a * Math.PI) / 180), a] as const);
+  if (normals.some(([nx, ny]) => nx * lx + ny * ly > apothem)) return [];
+  const exits = normals.map(([ux, uy, a]) => {
+    let t = Infinity;
+    for (const [nx, ny] of normals) {
+      const nu = nx * ux + ny * uy;
+      if (nu > 1e-9) t = Math.min(t, (apothem - (nx * lx + ny * ly)) / nu);
+    }
+    return [a, t + p.backplate.rib / 2] as [number, number];
+  });
+  return exits.sort((a, b) => a[1] - b[1]).slice(0, 3);
+}
+
+function rotRect(x: number, y: number, angDeg: number, len: number, w: number): Polygon {
+  const a = (angDeg * Math.PI) / 180;
+  const ux = Math.cos(a), uy = Math.sin(a);
+  const vx = -uy * (w / 2), vy = ux * (w / 2);
+  return [
+    [x + vx, y + vy],
+    [x - vx, y - vy],
+    [x + ux * len - vx, y + uy * len - vy],
+    [x + ux * len + vx, y + uy * len + vy],
+  ];
+}
+
+/**
+ * 2D outline of a backplate section. Solid style: the section itself. Honeycomb:
+ * section minus hexagonal holes, except a solid rim, pads with spokes under every
+ * pin (or tile centre in glue mode) and pads around key pockets.
+ */
+export function sectionWeb(d: Design, s: Section): MP {
+  const p = d.params;
+  const full: MP = [toPC(s.poly)];
+  if (p.backplate.style !== 'honeycomb') return full;
+  const hc = honeycombGeometry(p);
+  const b = bbox(s.poly);
+  const holes: PC.Poly[] = [];
+  for (let i = Math.floor(b.minX / hc.dx) - 1; i <= Math.ceil(b.maxX / hc.dx) + 1; i++) {
+    for (let j = Math.floor(b.minY / hc.dy) - 1; j <= Math.ceil(b.maxY / hc.dy) + 1; j++) {
+      const cx = i * hc.dx;
+      const cy = j * hc.dy + (Math.abs(i) % 2 === 1 ? hc.dy / 2 : 0);
+      if (cx + hc.R < b.minX || cx - hc.R > b.maxX || cy + hc.R < b.minY || cy - hc.R > b.maxY) continue;
+      holes.push(toPC(hexAt(cx, cy, hc.holeR)));
+    }
+  }
+  const inner = insetConvex(s.poly, p.backplate.rim);
+  if (inner.length < 3 || !holes.length) return full;
+
+  const solids: PC.Poly[] = [];
+  const padR = (p.mount.type === 'pressfit' ? p.mount.pinDiameter / 2 : 4) + PAD.margin;
+  const centres: Vec2[] = p.mount.type === 'pressfit' ? s.pins : s.tiles.map((id) => d.tiles[id].center);
+  for (const [x, y] of centres) {
+    solids.push(toPC(circle(padR, 20, x, y)));
+    for (const [a, len] of padSpokes(p, x, y)) solids.push(toPC(rotRect(x, y, a, len, p.backplate.rib)));
+  }
+  for (const [x, y, a] of s.keys) solids.push(toPC(bowtieAt(x, y, a, PAD.margin)));
+
+  let cut = pc.intersection(pc.union(...holes), toPC(inner));
+  if (solids.length) cut = pc.difference(cut, ...solids);
+  return pc.difference(full, cut);
+}
+
 /**
  * Backplate section: stacked layers (key pockets at the bottom, optional
  * engraved guides at the top) plus pins.
@@ -241,7 +395,7 @@ function bowtieAt(x: number, y: number, angDeg: number, grow: number): Polygon {
 export function sectionSolid(d: Design, s: Section): Mesh {
   const p = d.params;
   const t = p.backplate.thickness;
-  const full: MP = [toPC(s.poly)];
+  const full: MP = sectionWeb(d, s);
   const layers: { region: MP; z0: number; z1: number }[] = [];
 
   const keyDepth = p.backplate.thickness / 2;

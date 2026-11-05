@@ -55,6 +55,10 @@ export function validate(p: DesignParams): string[] {
     e.push(`With press-fit pins the tile wall must be at least ${p.mount.pinHeight + 1.2} mm (pin height + 1.2).`);
   }
   if (p.mount.pinHeight >= p.backplate.thickness * 3) e.push('Pins are too tall for this backplate.');
+  if (p.backplate.style === 'honeycomb') {
+    if (p.backplate.rib < 0.8) e.push('Honeycomb walls must be at least 0.8 mm (two nozzle widths).');
+    if (p.backplate.cell < p.backplate.rib * 3) e.push('Honeycomb cells must be at least three times the wall width.');
+  }
   return e;
 }
 
@@ -109,7 +113,11 @@ export function generateDesign(input: PartialParams | DesignParams): Design {
     tiles.filter((t) => t.color === c).reduce((g, t) => g + (meshVolume(t, params.tiles.wall) / 1000) * GRAMS_PER_CM3, 0),
   );
   const plateArea = sections.reduce((a, s) => a + area(s.poly), 0);
-  const backplateGrams = ((plateArea * params.backplate.thickness) / 1000) * GRAMS_PER_CM3;
+  // Honeycomb: open cells remove most of the plate; rim, pads and spokes add some back.
+  const bp = params.backplate;
+  const hole = Math.max(0, (bp.cell - bp.rib) / bp.cell);
+  const fill = bp.style === 'honeycomb' ? Math.min(1, 1 - hole * hole + 0.12) : 1;
+  const backplateGrams = ((plateArea * bp.thickness * fill) / 1000) * GRAMS_PER_CM3;
 
   return {
     params,

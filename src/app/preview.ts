@@ -2,9 +2,10 @@
 // hung on a wall so the shadows read like the real thing.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Design, tileMesh } from '../core/index';
+import { Design, tileMesh, sectionWeb } from '../core/index';
 
 export type View = 'iso' | 'front' | 'side' | 'room';
+export type ShowMode = 'board' | 'backplate';
 
 export class Preview {
   private renderer: THREE.WebGLRenderer;
@@ -19,6 +20,8 @@ export class Preview {
   private design?: Design;
   private highlighted = -1;
   private needsRender = true;
+  private mode: ShowMode = 'board';
+  private webCache = new Map<string, THREE.BufferGeometry>();
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -111,6 +114,29 @@ export class Preview {
     this.needsRender = true;
   }
 
+  setMode(m: ShowMode) {
+    this.mode = m;
+    if (this.design) this.update(this.design, false);
+  }
+
+  /** Honeycomb (or solid) backplate section as an extruded mesh, cached per section. */
+  private webGeometry(d: Design, sid: number): THREE.BufferGeometry {
+    const p = d.params;
+    const s = d.sections[sid];
+    const key = JSON.stringify([s.poly, s.pins, s.keys, p.backplate, p.mount.type, p.mount.pinDiameter, p.mount.type === 'glue' ? s.tiles.map((id) => d.tiles[id].center) : 0]);
+    const hit = this.webCache.get(key);
+    if (hit) return hit;
+    const shapes = sectionWeb(d, s).map((poly) => {
+      const shape = new THREE.Shape(poly[0].map(([x, y]) => new THREE.Vector2(x, y)));
+      for (const h of poly.slice(1)) shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))));
+      return shape;
+    });
+    const g = new THREE.ExtrudeGeometry(shapes, { depth: p.backplate.thickness, bevelEnabled: false, curveSegments: 1 });
+    if (this.webCache.size > 400) this.webCache.clear();
+    this.webCache.set(key, g);
+    return g;
+  }
+
   /** Highlight one colour (index) or none (-1). */
   highlight(color: number) {
     this.highlighted = color;
@@ -122,7 +148,8 @@ export class Preview {
     for (const child of [...this.board.children]) {
       this.board.remove(child);
       child.traverse((o) => {
-        if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose();
+        const g = (o as THREE.Mesh).geometry;
+        if (g && ![...this.webCache.values()].includes(g)) g.dispose();
       });
     }
     const p = d.params;
@@ -131,16 +158,24 @@ export class Preview {
     this.size = newSize;
     this.wall.scale.set(newSize * 6, newSize * 6, 1);
 
-    // Backplate sections.
-    const plateMat = new THREE.MeshStandardMaterial({ color: '#e4e0d8', roughness: 0.9 });
+    // Backplate sections. With tiles on top only the outline shows, so the
+    // honeycomb is built only when the backplate is shown on its own.
+    const onlyPlate = this.mode === 'backplate';
+    // On its own the backplate gets a darker, cooler tone so the open cells read against the wall.
+    const plateMat = new THREE.MeshStandardMaterial({ color: onlyPlate ? '#5f7f84' : '#e4e0d8', roughness: 0.8 });
     for (const s of d.sections) {
-      const shape = new THREE.Shape(s.poly.map(([x, y]) => new THREE.Vector2(x, y)));
-      const g = new THREE.ExtrudeGeometry(shape, { depth: p.backplate.thickness, bevelEnabled: false });
+      let g: THREE.BufferGeometry;
+      if (onlyPlate) {
+        g = this.webGeometry(d, s.id);
+      } else {
+        const shape = new THREE.Shape(s.poly.map(([x, y]) => new THREE.Vector2(x, y)));
+        g = new THREE.ExtrudeGeometry(shape, { depth: p.backplate.thickness, bevelEnabled: false });
+      }
       const m = new THREE.Mesh(g, plateMat);
       m.castShadow = true;
       m.receiveShadow = true;
       this.board.add(m);
-      if (this.showSeams) {
+      if (this.showSeams && !onlyPlate) {
         const edges = new THREE.LineSegments(
           new THREE.EdgesGeometry(g, 30),
           new THREE.LineBasicMaterial({ color: '#8d877c' }),
@@ -149,9 +184,30 @@ export class Preview {
       }
     }
 
+    const z0 = p.backplate.thickness;
+    if (onlyPlate) {
+      // Seams as thin gaps are visible already; add the pins.
+      if (p.mount.type === 'pressfit') {
+        const pins = d.sections.flatMap((s) => s.pins);
+        if (pins.length) {
+          const pin = new THREE.CylinderGeometry(p.mount.pinDiameter / 2 - 0.25, p.mount.pinDiameter / 2, p.mount.pinHeight, 16);
+          pin.rotateX(Math.PI / 2);
+          pin.translate(0, 0, z0 + p.mount.pinHeight / 2);
+          const inst = new THREE.InstancedMesh(pin, plateMat, pins.length);
+          const mtx = new THREE.Matrix4();
+          pins.forEach(([x, y], i) => inst.setMatrixAt(i, mtx.makeTranslation(x, y, 0)));
+          inst.castShadow = true;
+          this.board.add(inst);
+        }
+      }
+      if (sizeChanged || refit) this.setLight(this.lightT);
+      if (sizeChanged) this.setView('iso');
+      this.needsRender = true;
+      return;
+    }
+
     // Tiles: one merged mesh per colour.
     const wall = p.tiles.wall;
-    const z0 = p.backplate.thickness;
     d.palette.forEach((hex, c) => {
       const pos: number[] = [];
       for (const t of d.tiles) {

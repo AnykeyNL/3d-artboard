@@ -13,6 +13,7 @@ export type PatternType =
   | 'noise';
 export type ColorMode = 'pattern' | 'height' | 'radial' | 'angle' | 'horizontal' | 'vertical' | 'diagonal' | 'random';
 export type MountType = 'pressfit' | 'glue';
+export type BackplateStyle = 'honeycomb' | 'solid';
 
 export interface DesignParams {
   /** Overall size of the finished board. Max 2000 × 2000 × 200. */
@@ -86,6 +87,14 @@ export interface DesignParams {
     thickness: number;
     /** Bowtie keys that lock backplate sections together. */
     keys: boolean;
+    /** Open honeycomb web (saves filament and print time) or a solid plate. */
+    style: BackplateStyle;
+    /** Honeycomb cell size, across the flats. */
+    cell: number;
+    /** Honeycomb wall width. */
+    rib: number;
+    /** Solid band around each section's edge. */
+    rim: number;
   };
 
   printer: {
@@ -163,6 +172,10 @@ export function defaultParams(): DesignParams {
     backplate: {
       thickness: 5,
       keys: true,
+      style: 'honeycomb',
+      cell: 22,
+      rib: 2,
+      rim: 6,
     },
     printer: {
       bedX: 250,

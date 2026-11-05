@@ -1,7 +1,7 @@
 import './style.css';
 import { DesignParams, PartialParams, defaultParams, generateDesign, toScad, withDefaults, Design, buildPrintPack, assemblyMapSVG, MeshFormat } from '../core/index';
 import { GROUPS, Control, getPath, setPath } from './controls';
-import { Preview, View } from './preview';
+import { Preview, View, ShowMode } from './preview';
 import { PRESETS } from './presets';
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -223,6 +223,13 @@ document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) =>
     document.querySelectorAll('[data-view]').forEach((x) => x.classList.remove('on'));
     b.classList.add('on');
     preview.setView(b.dataset.view as View);
+  }),
+);
+document.querySelectorAll<HTMLButtonElement>('[data-show]').forEach((b) =>
+  (b.onclick = () => {
+    document.querySelectorAll('[data-show]').forEach((x) => x.classList.remove('on'));
+    b.classList.add('on');
+    preview.setMode(b.dataset.show as ShowMode);
   }),
 );
 ($('#light') as HTMLInputElement).oninput = (e) => preview.setLightT(parseFloat((e.target as HTMLInputElement).value));

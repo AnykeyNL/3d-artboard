@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { unzipSync, strFromU8 } from 'fflate';
 import {
   generateDesign, tileSolid, tileOptions, sectionSolid, keySolid, fitTestSolids, Mesh, toBinarySTL, to3MF,
-  buildPrintPack, assemblyMapSVG, meshVolume, area, KEY, PartialParams,
+  buildPrintPack, assemblyMapSVG, meshVolume, area, KEY, PartialParams, sectionWeb,
 } from '../src/core/index';
-import polygonClipping from 'polygon-clipping';
+import * as clip from '../src/core/clip';
 
 function volume(m: Mesh): number {
   let v = 0;
@@ -62,7 +62,7 @@ describe('tile meshes', () => {
 describe('backplate meshes', () => {
   for (const c of cases) {
     it(`have the right volume (${c.outline ?? 'square'}, ${c.mount?.type ?? 'pressfit'})`, () => {
-      const d = generateDesign({ ...c, width: 600, height: 520 });
+      const d = generateDesign({ ...c, width: 600, height: 520, backplate: { style: 'solid' } });
       const p = d.params;
       for (const s of d.sections) {
         const m = sectionSolid(d, s);
@@ -75,13 +75,31 @@ describe('backplate meshes', () => {
           const bt = KEY;
           void bt;
           const shape = [[-13, -7], [0, -3.5], [13, -7], [13, 7], [0, 3.5], [-13, 7]].map(([u, w]) => [x + u * Math.cos(r) - w * Math.sin(r), y + u * Math.sin(r) + w * Math.cos(r)] as [number, number]);
-          const inter = polygonClipping.intersection([shape], [s.poly as [number, number][]]);
-          pockets += inter.reduce((acc, poly) => acc + area(poly[0] as any), 0) * (p.backplate.thickness / 2);
+          const inter = clip.intersection([shape], [s.poly as [number, number][]]);
+          pockets += inter.reduce((acc, poly) => acc + clip.polyArea(poly), 0) * (p.backplate.thickness / 2);
         }
         const pins = p.mount.type === 'pressfit' ? s.pins.length * Math.PI * (p.mount.pinDiameter / 2) ** 2 * p.mount.pinHeight : 0;
         const expected = plate - pockets + pins;
         // Pins overlap the plate by 0.3 mm and pockets grow by the clearance; allow a few percent.
         expect(Math.abs(v - expected) / expected).toBeLessThan(0.04);
+      }
+    });
+  }
+
+  for (const mount of ['pressfit', 'glue'] as const) {
+    it(`honeycomb backplate (${mount}) saves material and keeps every pin on a pad`, () => {
+      const solid = generateDesign({ width: 600, height: 520, mount: { type: mount }, backplate: { style: 'solid' } });
+      const honey = generateDesign({ width: 600, height: 520, mount: { type: mount }, backplate: { style: 'honeycomb' } });
+      for (const s of honey.sections) {
+        const vs = volume(sectionSolid(solid, solid.sections[s.id]));
+        const vh = volume(sectionSolid(honey, s));
+        expect(vh).toBeGreaterThan(vs * 0.2);
+        expect(vh).toBeLessThan(vs * 0.75);
+        // Material directly under each pin.
+        const web = sectionWeb(honey, s);
+        const inside = (x: number, y: number) =>
+          web.some((poly) => pointInRing([x, y], poly[0]) && !poly.slice(1).some((h) => pointInRing([x, y], h)));
+        for (const [x, y] of s.pins) expect(inside(x, y)).toBe(true);
       }
     });
   }
@@ -132,3 +150,13 @@ describe('files', () => {
     expect(first[1]).toBeGreaterThan(last[1]);
   });
 });
+
+function pointInRing(p: [number, number], ring: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}

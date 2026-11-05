@@ -4,6 +4,8 @@
 import { Design } from './design';
 import { KEY } from './backplate';
 import { bbox } from './geometry';
+import { PAD, padSpokes } from './mesh';
+import type { Section } from './backplate';
 
 const f = (n: number) => {
   const r = Math.round(n * 1000) / 1000;
@@ -53,11 +55,45 @@ module key() {
   linear_extrude(KEY_T) bowtie();
 }
 
+// Backplate outline in 2D: solid, or an open honeycomb that keeps a solid rim,
+// pads with spokes under pins (glue mode: under tile centres) and around key pockets.
+HC_R = HC_CELL / sqrt(3);
+HC_DX = 1.5 * HC_R;
+HC_DY = sqrt(3) * HC_R;
+HC_HOLE = (HC_CELL / 2 - HC_RIB / 2) * 2 / sqrt(3);
+
+module hc_holes(lo, hi) {
+  for (i = [floor(lo[0] / HC_DX) - 1 : ceil(hi[0] / HC_DX) + 1])
+    for (j = [floor(lo[1] / HC_DY) - 1 : ceil(hi[1] / HC_DY) + 1])
+      translate([i * HC_DX, j * HC_DY + (i % 2 == 0 ? 0 : HC_DY / 2)]) circle(r = HC_HOLE, $fn = 6);
+}
+
+module hc_solids(s) {
+  pad_r = (MOUNT == "pressfit" ? PIN_D / 2 : 4) + PAD_MARGIN;
+  centres = MOUNT == "pressfit" ? s[2] : [for (ti = s[4]) [TILES[ti][0], TILES[ti][1]]];
+  for (c = centres) translate(c) circle(r = pad_r, $fn = 20);
+  for (sp = s[6]) translate([sp[0], sp[1]]) rotate(sp[2]) translate([0, -HC_RIB / 2]) square([sp[3], HC_RIB]);
+  for (k = s[3]) translate([k[0], k[1]]) rotate(k[2]) bowtie(PAD_MARGIN);
+}
+
+module web2d(i) {
+  s = SECTIONS[i];
+  if (BACKPLATE == "honeycomb")
+    difference() {
+      polygon(s[1]);
+      difference() {
+        intersection() { hc_holes(s[0], s[5]); offset(delta = -HC_RIM) polygon(s[1]); }
+        hc_solids(s);
+      }
+    }
+  else polygon(s[1]);
+}
+
 // Section in board coordinates.
 module section_abs(i) {
   s = SECTIONS[i];
   difference() {
-    linear_extrude(PLATE_T) polygon(s[1]);
+    linear_extrude(PLATE_T) web2d(i);
     if (len(s[3]) > 0)
       for (k = s[3]) translate([k[0], k[1], -0.01]) rotate(k[2])
         linear_extrude(KEY_T + 0.2 + 0.01) bowtie(KEY_CLEAR);
@@ -139,6 +175,11 @@ export function toScad(d: Design): string {
   lines.push(`GUIDES = ${p.mount.guides ? 'true' : 'false'};`);
   lines.push('GUIDE_DEPTH = 0.6;');
   lines.push('GUIDE_W = 0.8;');
+  lines.push(`BACKPLATE = "${p.backplate.style}";`);
+  lines.push(`HC_CELL = ${f(p.backplate.cell)};`);
+  lines.push(`HC_RIB = ${f(p.backplate.rib)};`);
+  lines.push(`HC_RIM = ${f(p.backplate.rim)};`);
+  lines.push(`PAD_MARGIN = ${PAD.margin};`);
   lines.push(`KEY_T = ${f(p.backplate.thickness / 2 - 0.2)};`);
   lines.push(`KEY_CLEAR = ${f(KEY.clearance)};`);
   lines.push(`KEY_SHAPE = ${list(keyShape(), v2)};`);
@@ -155,13 +196,13 @@ export function toScad(d: Design): string {
   );
   lines.push('];');
   lines.push('');
-  lines.push('// SECTIONS[i] = [[minX, minY] of outline, outline, pins, key pockets [x, y, angle], tile ids]');
+  lines.push('// SECTIONS[i] = [[minX, minY] of outline, outline, pins, key pockets [x, y, angle], tile ids, [maxX, maxY], pad spokes [x, y, angle, length]]');
   lines.push('SECTIONS = [');
   lines.push(
     d.sections
       .map(
         (s) =>
-          `  [${v2([bbox(s.poly).minX, bbox(s.poly).minY])},${list(s.poly, v2)},${list(s.pins, v2)},${list(s.keys, v3)},[${s.tiles.join(',')}]]`,
+          `  [${v2([bbox(s.poly).minX, bbox(s.poly).minY])},${list(s.poly, v2)},${list(s.pins, v2)},${list(s.keys, v3)},[${s.tiles.join(',')}],${v2([bbox(s.poly).maxX, bbox(s.poly).maxY])},${list(spokesFor(d, s), (q) => `[${q.map(f).join(',')}]`)}]`,
       )
       .join(',\n'),
   );
@@ -191,4 +232,11 @@ function keyShape(): number[][] {
     [0, w],
     [-L, W],
   ];
+}
+
+function spokesFor(d: Design, s: Section): number[][] {
+  const p = d.params;
+  if (p.backplate.style !== 'honeycomb') return [];
+  const centres = p.mount.type === 'pressfit' ? s.pins : s.tiles.map((id) => d.tiles[id].center);
+  return centres.flatMap(([x, y]) => padSpokes(p, x, y).map(([a, len]) => [x, y, a, len]));
 }

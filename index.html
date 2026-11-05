@@ -36,12 +36,16 @@
             <button data-view="side">Side</button>
             <button data-view="room">Room</button>
           </div>
+          <div class="seg views" role="group" aria-label="Show">
+            <button data-show="board" class="on">Board</button>
+            <button data-show="backplate" title="Show the backplate on its own">Backplate</button>
+          </div>
           <label class="light" title="Light direction">☀<input id="light" type="range" min="0" max="1" step="0.01" value="0.35" /></label>
           <label class="check"><input id="seams" type="checkbox" checked /> Seams</label>
           <span class="spacer"></span>
           <button id="share" class="ghost">Share</button>
           <button id="dl-png" class="ghost">Image</button>
-          <button id="show-map" class="ghost">Assembly map</button>
+          <button id="show-map" class="ghost" title="Assembly map">Map</button>
           <button id="dl-scad" class="ghost">OpenSCAD</button>
           <div class="pack">
             <select id="pack-format" aria-label="File format">

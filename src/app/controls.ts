@@ -105,8 +105,8 @@ export const GROUPS: Group[] = [
   },
   {
     id: 'mount',
-    title: 'Mounting',
-    summary: (p) => (p.mount.type === 'pressfit' ? `Press-fit pins ⌀${p.mount.pinDiameter} mm` : 'Glue') + ` · plate ${p.backplate.thickness} mm`,
+    title: 'Mounting & backplate',
+    summary: (p) => (p.mount.type === 'pressfit' ? `Press-fit pins ⌀${p.mount.pinDiameter} mm` : 'Glue') + ` · ${p.backplate.style} backplate ${p.backplate.thickness} mm`,
     controls: [
       {
         kind: 'segmented', path: 'mount.type', label: 'Attach tiles with',
@@ -119,7 +119,17 @@ export const GROUPS: Group[] = [
       { kind: 'range', path: 'mount.pinHeight', label: 'Pin height', min: 2, max: 10, step: 0.5, unit: 'mm', showIf: (p) => p.mount.type === 'pressfit' },
       { kind: 'range', path: 'mount.clearance', label: 'Fit clearance', hint: 'print the fit test to tune', min: 0, max: 0.5, step: 0.05, unit: 'mm', showIf: (p) => p.mount.type === 'pressfit' },
       { kind: 'toggle', path: 'mount.guides', label: 'Engrave tile outlines on the backplate', showIf: (p) => p.mount.type === 'glue' },
+      {
+        kind: 'segmented', path: 'backplate.style', label: 'Backplate',
+        options: [
+          { value: 'honeycomb', label: 'Honeycomb', icon: '⬡' },
+          { value: 'solid', label: 'Solid', icon: '▬' },
+        ],
+      },
       { kind: 'range', path: 'backplate.thickness', label: 'Backplate thickness', min: 3, max: 12, step: 0.5, unit: 'mm' },
+      { kind: 'range', path: 'backplate.cell', label: 'Cell size', hint: 'across the flats', min: 8, max: 80, step: 1, unit: 'mm', showIf: (p) => p.backplate.style === 'honeycomb' },
+      { kind: 'range', path: 'backplate.rib', label: 'Wall width', min: 0.8, max: 6, step: 0.1, unit: 'mm', showIf: (p) => p.backplate.style === 'honeycomb' },
+      { kind: 'range', path: 'backplate.rim', label: 'Solid edge', hint: 'band around each section', min: 2, max: 20, step: 0.5, unit: 'mm', showIf: (p) => p.backplate.style === 'honeycomb' },
       { kind: 'toggle', path: 'backplate.keys', label: 'Bowtie keys between sections' },
     ],
   },

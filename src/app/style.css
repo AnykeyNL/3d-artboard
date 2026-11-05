@@ -134,7 +134,7 @@ button.primary { background: var(--accent); color: var(--accent-ink); border: 0;
 #toolbar .views { flex-wrap: nowrap; }
 #toolbar .views button { flex: none; padding: 5px 10px; }
 .light { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
-.light input { width: 110px; }
+.light input { width: 80px; }
 .check { display: inline-flex; gap: 5px; align-items: center; color: var(--muted); cursor: pointer; }
 .check input { accent-color: var(--accent); }
 .spacer { flex: 1; }

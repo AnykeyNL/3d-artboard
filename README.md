@@ -30,14 +30,18 @@ printers by default).
 
 - Each **tile** is one colour and prints base-down with no supports. Tips are kept inside the
   footprint so nothing overhangs.
-- The **backplate** is split into a grid of sections no larger than the bed minus the margin. Seams
+- The **backplate** is an open **honeycomb** by default (about a third of the filament of a solid
+  plate). It keeps a solid rim around every section, a solid pad with short spokes under every pin
+  (or under every tile centre in glue mode) and solid pads around the key pockets. A solid plate
+  is still an option. **Backplate** in the toolbar shows it on its own.
+- The backplate is split into a grid of sections no larger than the bed minus the margin. Seams
   are nudged so they don't cut through a pin. Sections are joined with printed **bowtie keys**
   that sit in pockets on the back.
 - Parts are packed onto **plates**, one colour per plate, ready to print.
 - A **fit test** part has pins and sockets at 0.05–0.3 mm clearance so you can tune the press fit
   before printing hundreds of tiles.
 
-![Backplate section with pins](docs/backplate-section.png)
+![Honeycomb backplate section with pins](docs/honeycomb-section.png)
 
 ## The print pack
 
