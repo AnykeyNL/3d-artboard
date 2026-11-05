@@ -1,5 +1,5 @@
 import './style.css';
-import { DesignParams, PartialParams, defaultParams, generateDesign, toScad, withDefaults, Design } from '../core/index';
+import { DesignParams, PartialParams, defaultParams, generateDesign, toScad, withDefaults, Design, buildPrintPack, assemblyMapSVG, MeshFormat } from '../core/index';
 import { GROUPS, Control, getPath, setPath } from './controls';
 import { Preview, View } from './preview';
 import { PRESETS } from './presets';
@@ -231,6 +231,42 @@ $('#dl-scad').onclick = () => {
   if (design.errors.length) return toast('Fix the errors first');
   download(`${slug()}.scad`, toScad(design));
 };
+let busy = false;
+$('#dl-pack').onclick = async () => {
+  if (design.errors.length) return toast('Fix the errors first');
+  if (busy) return;
+  busy = true;
+  const format = ($('#pack-format') as HTMLSelectElement).value as MeshFormat;
+  const box = $('#progress');
+  const bar = box.querySelector('i') as HTMLElement;
+  const label = box.querySelector('span') as HTMLElement;
+  box.hidden = false;
+  try {
+    const d = design;
+    const zip = await buildPrintPack(d, {
+      format,
+      onProgress: (done, total, what) => {
+        bar.style.width = `${(100 * done) / total}%`;
+        label.textContent = `Building ${what} (${done} of ${total})`;
+      },
+    });
+    download(`${slug()}-print-pack.zip`, new Blob([zip as BlobPart], { type: 'application/zip' }));
+    toast(`Print pack ready: ${d.stats.plates} plates, ${d.stats.sections} backplate parts`);
+  } catch (e) {
+    console.error(e);
+    toast('Could not build the print pack');
+  } finally {
+    box.hidden = true;
+    busy = false;
+  }
+};
+$('#show-map').onclick = () => {
+  if (design.errors.length) return toast('Fix the errors first');
+  $('#map-body').innerHTML = assemblyMapSVG(design);
+  $('#map-overlay').hidden = false;
+};
+$('#close-map').onclick = () => ($('#map-overlay').hidden = true);
+$('#dl-map').onclick = () => download(`${slug()}-assembly-map.svg`, assemblyMapSVG(design), 'image/svg+xml');
 $('#dl-json').onclick = () => download(`${slug()}.json`, JSON.stringify(params, null, 2), 'application/json');
 $('#dl-png').onclick = async () => {
   const blob = await (await fetch(preview.snapshot())).blob();

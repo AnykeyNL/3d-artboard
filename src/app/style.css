@@ -39,6 +39,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);
@@ -178,4 +179,26 @@ button.swatch-row:hover { background: var(--accent-soft); }
   #toolbar { padding: 6px 8px; gap: 6px; }
   .light input { width: 70px; }
   #dl-png { display: none; }
+}
+
+.pack { display: inline-flex; }
+.pack select { width: auto; border-radius: 6px 0 0 6px; border-right: 0; padding: 6px 6px; background: var(--panel); }
+.pack .primary { border-radius: 0 6px 6px 0; }
+#progress {
+  position: absolute; left: 50%; top: 64px; transform: translateX(-50%); width: min(420px, calc(100% - 32px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 6px; font-size: 13px;
+}
+#progress .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+#progress .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.1s; }
+#map-overlay {
+  position: absolute; inset: 49px 0 0 0; background: var(--bg); display: flex; flex-direction: column; z-index: 5;
+}
+.map-head { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; background: var(--panel); }
+.map-head .muted { font-size: 12.5px; }
+#map-body { flex: 1; overflow: auto; padding: 16px; }
+#map-body svg { width: 100%; height: auto; max-width: 1600px; display: block; margin: 0 auto; background: #fff; border-radius: 6px; }
+@media (max-width: 820px) {
+  #map-overlay { position: fixed; inset: 0; }
+  .pack .primary { padding: 7px 8px; }
 }

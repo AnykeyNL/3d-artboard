@@ -72,7 +72,11 @@ export function generateDesign(input: PartialParams | DesignParams): Design {
     };
   }
 
-  const cells = layoutCells(params, outline);
+  // Number tiles in reading order: top row first, left to right.
+  const rowStep = params.tiles.size / 4;
+  const cells = layoutCells(params, outline).sort(
+    (a, b) => Math.round(b.center[1] / rowStep) - Math.round(a.center[1] / rowStep) || a.center[0] - b.center[0],
+  );
   const tiles: Tile[] = cells.map((cell, id) => {
     const s = samplePattern(params, cell.center, cell.i, cell.j);
     const color = colorIndex(params, colorValue(params, cell.center, s, cell.i, cell.j), cell.i, cell.j);

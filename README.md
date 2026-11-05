@@ -13,8 +13,8 @@ printers by default).
 | --- | --- | --- |
 | 1 | Geometry engine and OpenSCAD generator | done |
 | 2 | Web app with live 3D preview | done |
-| 3 | Print export (STL/3MF per colour, assembly map, part count) | next |
-| 4 | Polish and publish | planned |
+| 3 | Print export (STL/3MF per colour, assembly map, part count) | done |
+| 4 | Polish and publish | next |
 
 ## What you can set
 
@@ -39,13 +39,27 @@ printers by default).
 
 ![Backplate section with pins](docs/backplate-section.png)
 
+## The print pack
+
+**Download print pack** builds one zip in the browser (a few seconds, no server):
+
+- `backplate/` one STL or 3MF per backplate section, already placed on the bed
+- `tiles/colour-N-…/` full plates of tiles, one colour per plate, each with a numbered plate map
+- `keys/` the bowtie keys, `fit-test` to tune the press fit
+- `assembly-map.svg` the board from the front with every tile numbered and the sections marked
+- `tiles.csv`, `artboard.scad`, `design.json` and a `README.txt` with build steps and filament estimate
+
+Tiles are numbered in reading order (top row first, left to right), and plates are
+filled in that order, so each plate holds neighbouring tiles.
+
 ## Run it
 
 ```bash
 npm install
 npm run dev                                             # web app on http://localhost:5173
 npm run generate -- examples/vortex-small.json          # writes out/vortex-small/artboard.scad
-npm run generate -- examples/vortex-small.json --stl    # also renders every part with OpenSCAD
+npm run generate -- examples/vortex-small.json --pack   # also writes the print pack zip (3MF)
+npm run generate -- examples/vortex-small.json --openscad  # renders every part with OpenSCAD instead
 npm test
 ```
 
@@ -67,6 +81,8 @@ src/core/tile.ts       tile solids (shared by the OpenSCAD output and the previe
 src/core/backplate.ts  bed-sized sections, pins, bowtie keys
 src/core/packing.ts    print-plate packing
 src/core/scad.ts       OpenSCAD emitter
+src/core/mesh.ts       printable meshes (tiles with sockets, backplate layers, pins, keys)
+src/core/export.ts     STL, 3MF, assembly and plate maps, print pack zip
 src/core/design.ts     puts it together, checks limits, filament estimate
 src/app/               web app: parameter panel, three.js preview, downloads
 ```

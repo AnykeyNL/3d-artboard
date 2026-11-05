@@ -41,11 +41,30 @@
           <span class="spacer"></span>
           <button id="share" class="ghost">Share</button>
           <button id="dl-png" class="ghost">Image</button>
-          <button id="dl-scad" class="primary">Download OpenSCAD</button>
+          <button id="show-map" class="ghost">Assembly map</button>
+          <button id="dl-scad" class="ghost">OpenSCAD</button>
+          <div class="pack">
+            <select id="pack-format" aria-label="File format">
+              <option value="3mf">3MF</option>
+              <option value="stl">STL</option>
+            </select>
+            <button id="dl-pack" class="primary">Download print pack</button>
+          </div>
         </div>
         <div id="viewport"></div>
         <div id="stats" aria-live="polite"></div>
         <div id="toast" role="status"></div>
+        <div id="progress" hidden><div class="bar"><i></i></div><span></span></div>
+        <div id="map-overlay" hidden>
+          <div class="map-head">
+            <strong>Assembly map</strong>
+            <span class="muted">Seen from the front. Numbers match the plate maps and tiles.csv in the print pack.</span>
+            <span class="spacer"></span>
+            <button id="dl-map" class="ghost">Download SVG</button>
+            <button id="close-map" class="ghost">Close</button>
+          </div>
+          <div id="map-body"></div>
+        </div>
       </main>
     </div>
     <script type="module" src="/src/app/main.ts"></script>

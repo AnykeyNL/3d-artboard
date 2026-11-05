@@ -8,3 +8,5 @@ export * from './backplate';
 export * from './packing';
 export * from './design';
 export * from './scad';
+export * from './mesh';
+export * from './export';

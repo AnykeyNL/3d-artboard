@@ -89,7 +89,8 @@ module assembly() {
 }
 
 // Small test strip: one pin per clearance so you can find the right fit
-// before printing hundreds of tiles. Clearances from left to right.
+// before printing hundreds of tiles. Clearances from left to right; the blocks
+// get taller (and have more dots) as the socket gets looser.
 module fit_test() {
   cl = [0.05, 0.1, 0.15, 0.2, 0.3];
   difference() {
@@ -98,9 +99,9 @@ module fit_test() {
   }
   for (k = [0:len(cl)-1]) translate([9 + k * 14, 8, PLATE_T - 0.01]) pin();
   for (k = [0:len(cl)-1]) translate([9 + k * 14, 30, 0]) difference() {
-    translate([-6, -6, 0]) cube([12, 12, PIN_H + 2]);
+    translate([-6, -6, 0]) cube([12, 12, PIN_H + 2 + k]);
     translate([0, 0, -0.01]) cylinder(d = PIN_D + cl[k], h = PIN_H + 0.4);
-    for (d = [0:k]) translate([-4 + d * 1.6, 5.5, PIN_H + 1.5]) cube([1, 1, 1]);
+    for (d = [0:k]) translate([-4 + d * 1.6, 5.5, PIN_H + 1.5 + k]) cube([1, 1, 1]);
   }
 }
 

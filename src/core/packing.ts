@@ -29,7 +29,9 @@ interface Box {
 }
 
 function shelfPack(boxes: Box[], W: number, H: number, margin: number, gap: number): PlateItem[][] {
-  const sorted = [...boxes].sort((a, b) => b.h - a.h || b.w - a.w);
+  // Keep board order (tiles arrive numbered in reading order) so each plate holds
+  // neighbouring tiles, which makes sorting them on assembly day easy.
+  const sorted = boxes;
   const plates: PlateItem[][] = [];
   let items: PlateItem[] = [];
   let x = margin;
